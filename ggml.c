@@ -27,6 +27,9 @@
 #if defined(__gnu_linux__)
 #include <syscall.h>
 #endif
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 #ifdef GGML_USE_METAL
 #include <unistd.h>
@@ -339,7 +342,16 @@ ggml_fp16_t ggml_fp32_to_fp16(float x) {
 }
 
 void ggml_fp16_to_fp32_row(const ggml_fp16_t * x, float * y, int n) {
-    for (int i = 0; i < n; i++) {
+    int i = 0;
+#if defined(__ARM_NEON)
+    float16_t * tmpx = x;
+    for (; i < n - 4; i+=4){
+        float16x4_t vx = vld1_f16(tmpx + i);
+        float32x4_t vy = vcvt_f32_f16(vx);
+        vst1q_f32(y + i, vy);
+    }
+#endif
+    for (; i < n; i++) {
         y[i] = GGML_FP16_TO_FP32(x[i]);
     }
 }
@@ -356,6 +368,13 @@ void ggml_fp32_to_fp16_row(const float * x, ggml_fp16_t * y, int n) {
         __m128 x_vec = _mm_loadu_ps(x + i);
         __m128i y_vec = _mm_cvtps_ph(x_vec, _MM_FROUND_TO_NEAREST_INT);
         _mm_storel_epi64((__m128i *)(y + i), y_vec);
+    }
+#endif
+#if defined(__ARM_NEON)
+    for (; i < n - 4; i+=4){
+        float32x4_t vx = vld1q_f32(x + i);
+        float16x4_t vy = vcvt_f16_f32(vx);
+        vst1_f16((float16_t*)y + i, vy);
     }
 #endif
     for (; i < n; i++) {
@@ -642,6 +661,22 @@ static const ggml_type_traits_t type_traits[GGML_TYPE_COUNT] = {
         .from_float_reference     = (ggml_from_float_t) quantize_row_q8_0_reference,
         .vec_dot                  = ggml_vec_dot_q8_0_q8_0,
         .vec_dot_type             = GGML_TYPE_Q8_0,
+#if defined (__ARM_FEATURE_MATMUL_INT8)
+        .nrows                    = 2,
+#else
+        .nrows                    = 1,
+#endif
+    },
+    [GGML_TYPE_Q8_0_origin] = {
+        .type_name                = "q8_0_origin",
+        .blck_size                = QK8_0,
+        .type_size                = sizeof(block_q8_0_origin),
+        .is_quantized             = true,
+        .to_float                 = NULL,
+        .from_float               = NULL,
+        .from_float_reference     = NULL,
+        .vec_dot                  = NULL,
+        .vec_dot_type             = GGML_TYPE_Q8_0_origin,
 #if defined (__ARM_FEATURE_MATMUL_INT8)
         .nrows                    = 2,
 #else
@@ -1478,7 +1513,6 @@ static inline void __sse_f16x4_store(ggml_fp16_t *x, __m128 y) {
 //
 // fundamental operations
 //
-
 inline static void ggml_vec_set_i8(const int n, int8_t * x, const int8_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
 
 inline static void ggml_vec_set_i16(const int n, int16_t * x, const int16_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
@@ -1487,16 +1521,105 @@ inline static void ggml_vec_set_i32(const int n, int32_t * x, const int32_t v) {
 
 inline static void ggml_vec_set_f16(const int n, ggml_fp16_t * x, const int32_t v) { for (int i = 0; i < n; ++i) x[i] = v; }
 
-inline static void ggml_vec_add_f32 (const int n, float * z, const float * x, const float * y) { for (int i = 0; i < n; ++i) z[i]  = x[i] + y[i]; }
-inline static void ggml_vec_add1_f32(const int n, float * z, const float * x, const float   v) { for (int i = 0; i < n; ++i) z[i]  = x[i] + v;    }
-inline static void ggml_vec_acc_f32 (const int n, float * y, const float * x)                  { for (int i = 0; i < n; ++i) y[i] += x[i];        }
-inline static void ggml_vec_acc1_f32(const int n, float * y, const float   v)                  { for (int i = 0; i < n; ++i) y[i] += v;           }
-inline static void ggml_vec_sub_f32 (const int n, float * z, const float * x, const float * y) { for (int i = 0; i < n; ++i) z[i]  = x[i] - y[i]; }
+inline static void ggml_vec_add_f32 (const int n, float * z, const float * x, const float * y)
+{
+    int i = 0;
+    #if defined(__ARM_NEON)
+    for (; i < n - 4; i += 4){
+        float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t zv = vaddq_f32(xv, yv);
+        vst1q_f32(z + i, zv);
+    }
+    #endif
+    for (; i < n; ++i) z[i]  = x[i] + y[i]; 
+}
+inline static void ggml_vec_add1_f32(const int n, float * z, const float * x, const float   v) 
+{
+    int i = 0;
+    #if defined(__ARM_NEON)
+    float32x4_t yv = vld1q_dup_f32(&v);
+    for (; i < n - 4; i += 4){
+        float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t zv = vaddq_f32(xv, yv);
+        vst1q_f32(z + i, zv);
+    }
+    #endif
+    for (; i < n; ++i) z[i]  = x[i] + v;
+}
+inline static void ggml_vec_acc_f32 (const int n, float * y, const float * x)
+{
+    int i = 0;
+    #if defined(__ARM_NEON)
+    for (; i < n - 4; i += 4){
+        float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t zv = vaddq_f32(xv, yv);
+        vst1q_f32(y + i, zv);
+    }
+    #endif
+    for (; i < n; ++i) y[i] += x[i];
+}
+inline static void ggml_vec_acc1_f32(const int n, float * y, const float   v)
+{
+    int i = 0;
+    #if defined(__ARM_NEON)
+    float32x4_t yv = vld1q_dup_f32(&v);
+    for (; i < n - 4; i += 4){
+        float32x4_t xv = vld1q_f32(y + i);
+        float32x4_t zv = vaddq_f32(xv, yv);
+        vst1q_f32(y + i, zv);
+    }
+    #endif
+    for (; i < n; ++i) y[i] += v;
+}
+inline static void ggml_vec_sub_f32 (const int n, float * z, const float * x, const float * y)
+{
+    int i = 0;
+    #if defined(__ARM_NEON)
+    for (; i < n - 4; i += 4){
+        float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t zv = vsubq_f32(xv, yv);
+        vst1q_f32(z + i, zv);
+    }
+    #endif
+    for (; i < n; ++i) z[i]  = x[i] - y[i];
+}
 inline static void ggml_vec_set_f32 (const int n, float * x, const float   v)                  { for (int i = 0; i < n; ++i) x[i]  = v;           }
-inline static void ggml_vec_cpy_f32 (const int n, float * y, const float * x)                  { for (int i = 0; i < n; ++i) y[i]  = x[i];        }
+inline static void ggml_vec_cpy_f32 (const int n, float * y, const float * x)
+{
+    // for (int i = 0; i < n; ++i) y[i]  = x[i];
+    memcpy(y, x, n*sizeof(float));
+}
 inline static void ggml_vec_neg_f32 (const int n, float * y, const float * x)                  { for (int i = 0; i < n; ++i) y[i]  = -x[i];       }
-inline static void ggml_vec_mul_f32 (const int n, float * z, const float * x, const float * y) { for (int i = 0; i < n; ++i) z[i]  = x[i]*y[i];   }
-inline static void ggml_vec_div_f32 (const int n, float * z, const float * x, const float * y) { for (int i = 0; i < n; ++i) z[i]  = x[i]/y[i];   }
+inline static void ggml_vec_mul_f32 (const int n, float * z, const float * x, const float * y)
+{
+    int i = 0;
+    #if defined(__ARM_NEON)
+    for (; i < n - 4; i += 4){
+        float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t zv = vmulq_f32(xv, yv);
+        vst1q_f32(z + i, zv);
+    }
+    #endif
+    for (; i < n; ++i)
+        z[i]  = x[i]*y[i];
+}
+inline static void ggml_vec_div_f32 (const int n, float * z, const float * x, const float * y)
+{
+    int i = 0;
+    #if defined(__ARM_NEON)
+    for (; i < n - 4; i += 4){
+        float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t zv = vdivq_f32(xv, yv);
+        vst1q_f32(z + i, zv);
+    }
+    #endif
+    for (; i < n; ++i) z[i]  = x[i]/y[i];
+}
 
 static void ggml_vec_dot_f32(int n, float * restrict s, size_t bs, const float * restrict x, size_t bx, const float * restrict y, size_t by, int nrc) {
    assert(nrc == 1);
@@ -1915,9 +2038,21 @@ inline static void ggml_vec_sum_f16_ggf(const int n, float * s, const ggml_fp16_
 }
 
 inline static void ggml_vec_max_f32(const int n, float * s, const float * x) {
-#ifndef GGML_USE_ACCELERATE
+    int i = 0;
     float max = -INFINITY;
-    for (int i = 0; i < n; ++i) {
+#ifdef __ARM_NEON
+    if (n > 4) {
+        float32x4_t m = vld1q_f32(x);
+        i += 4;
+        for (; i < n - 4; i += 4){
+            float32x4_t d = vld1q_f32(x + i);
+            m = vmaxq_f32(m, d);
+        }
+        max = vmaxvq_f32(m);
+    }
+#endif
+#ifndef GGML_USE_ACCELERATE
+    for (; i < n; ++i) {
         max = MAX(max, x[i]);
     }
     *s = max;
@@ -10270,20 +10405,44 @@ static void ggml_compute_forward_norm_f32(
             for (int64_t i01 = ith; i01 < ne01; i01 += nth) {
                 const float * x = (float *) ((char *) src0->data + i01*nb01 + i02*nb02 + i03*nb03);
 
-                ggml_float sum = 0.0;
-                for (int64_t i00 = 0; i00 < ne00; i00++) {
-                    sum += (ggml_float)x[i00];
+                float sum = 0.0;
+                int64_t i00 = 0;
+                #if defined(__ARM_NEON)
+                {
+                    float32x4_t sumv = vdupq_n_f32(0.0f);
+                    for(; i00 < ne00 - 4; i00 += 4){
+                        float32x4_t xv = vld1q_f32(x + i00);
+                        sumv = vaddq_f32(sumv, xv);
+                    }
+                    sum = vaddvq_f32(sumv);
+                }
+                #endif
+                for (; i00 < ne00; i00++) {
+                    sum += x[i00];
                 }
 
                 float mean = sum/ne00;
 
                 float * y = (float *) ((char *) dst->data + i01*nb1 + i02*nb2 + i03*nb3);
-
-                ggml_float sum2 = 0.0;
-                for (int64_t i00 = 0; i00 < ne00; i00++) {
+                i00 = 0;
+                float sum2 = 0.0;
+                #if defined(__ARM_NEON)
+                {
+                    float32x4_t sumv = vdupq_n_f32(0.0f);
+                    float32x4_t meanv = vld1q_dup_f32(&mean);
+                    for(; i00 < ne00 - 4; i00 += 4){
+                        float32x4_t xv = vld1q_f32(x + i00);
+                        float32x4_t vv = vsubq_f32(xv, meanv);
+                        vst1q_f32(y + i00, vv);
+                        sumv = vfmaq_f32(sumv, vv, vv);
+                    }
+                    sum2 = vaddvq_f32(sumv);
+                }
+                #endif
+                for (; i00 < ne00; i00++) {
                     float v = x[i00] - mean;
                     y[i00] = v;
-                    sum2 += (ggml_float)(v*v);
+                    sum2 += (v*v);
                 }
 
                 float variance = sum2/ne00;
@@ -10345,9 +10504,20 @@ static void ggml_compute_forward_rms_norm_f32(
             for (int64_t i01 = ith; i01 < ne01; i01 += nth) {
                 const float * x = (float *) ((char *) src0->data + i01*nb01 + i02*nb02 + i03*nb03);
 
-                ggml_float sum = 0.0;
-                for (int64_t i00 = 0; i00 < ne00; i00++) {
-                    sum += (ggml_float)(x[i00] * x[i00]);
+                float sum = 0.0;
+                int64_t i00 = 0;
+                #if defined(__ARM_NEON)
+                {
+                    float32x4_t sumv = vdupq_n_f32(0.0f);
+                    for(; i00 < ne00 - 4; i00 += 4){
+                        float32x4_t xv = vld1q_f32(x + i00);
+                        sumv = vfmaq_f32(sumv, xv, xv);
+                    }
+                    sum = vaddvq_f32(sumv);
+                }
+                #endif
+                for (; i00 < ne00; i00++) {
+                    sum += (x[i00] * x[i00]);
                 }
 
                 const float mean = sum/ne00;
@@ -10719,20 +10889,20 @@ static void ggml_compute_forward_mul_mat(
     ggml_from_float_t const from_float_to_vec_dot = type_traits[vec_dot_type].from_float;
     int64_t           const vec_dot_num_rows      = type_traits[type].nrows;
 
-    GGML_ASSERT(ne0 == ne01);
-    GGML_ASSERT(ne1 == ne11);
-    GGML_ASSERT(ne2 == ne12);
-    GGML_ASSERT(ne3 == ne13);
+    // GGML_ASSERT(ne0 == ne01);
+    // GGML_ASSERT(ne1 == ne11);
+    // GGML_ASSERT(ne2 == ne12);
+    // GGML_ASSERT(ne3 == ne13);
 
-    // we don't support permuted src0 or src1
-    GGML_ASSERT(nb00 == ggml_type_size(type));
-    GGML_ASSERT(nb10 == ggml_type_size(src1->type));
+    // // we don't support permuted src0 or src1
+    // GGML_ASSERT(nb00 == ggml_type_size(type));
+    // GGML_ASSERT(nb10 == ggml_type_size(src1->type));
 
-    // dst cannot be transposed or permuted
-    GGML_ASSERT(nb0 == sizeof(float));
-    GGML_ASSERT(nb0 <= nb1);
-    GGML_ASSERT(nb1 <= nb2);
-    GGML_ASSERT(nb2 <= nb3);
+    // // dst cannot be transposed or permuted
+    // GGML_ASSERT(nb0 == sizeof(float));
+    // GGML_ASSERT(nb0 <= nb1);
+    // GGML_ASSERT(nb1 <= nb2);
+    // GGML_ASSERT(nb2 <= nb3);
 
     // broadcast factors
     const int64_t r2 = ne12/ne02;
@@ -10878,8 +11048,8 @@ static void ggml_compute_forward_mul_mat(
         return;
     }
 
-    assert(ne12 % ne02 == 0);
-    assert(ne13 % ne03 == 0);
+    // assert(ne12 % ne02 == 0);
+    // assert(ne13 % ne03 == 0);
 
     // block-tiling attempt
     const int64_t blck_0 = 16;

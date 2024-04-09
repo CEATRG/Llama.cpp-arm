@@ -1,8 +1,10 @@
 # Define the default target now so that it is always the first target
-BUILD_TARGETS = \
-	main quantize quantize-stats perplexity imatrix embedding vdot q8dot train-text-from-scratch convert-llama2c-to-ggml \
-	simple batched batched-bench save-load-state server gguf gguf-split llama-bench libllava.a llava-cli baby-llama beam-search  \
-	retrieval speculative infill tokenize benchmark-matmult parallel finetune export-lora lookahead lookup passkey gritlm tests/test-c.o
+# BUILD_TARGETS = \
+# 	main quantize quantize-stats perplexity imatrix embedding vdot q8dot train-text-from-scratch convert-llama2c-to-ggml \
+# 	simple batched batched-bench save-load-state server gguf gguf-split llama-bench libllava.a llava-cli baby-llama beam-search  \
+# 	retrieval speculative infill tokenize benchmark-matmult parallel finetune export-lora lookahead lookup passkey gritlm tests/test-c.o
+
+BUILD_TARGETS = simple
 
 # Binaries only useful for tests
 TEST_TARGETS = \
@@ -105,12 +107,12 @@ MK_NVCCFLAGS = -std=c++11
 
 # -Ofast tends to produce faster code, but may not be available for some compilers.
 ifdef LLAMA_FAST
-MK_CFLAGS     += -Ofast
-HOST_CXXFLAGS += -Ofast
+MK_CFLAGS     += -use_fast_math -flto -Ofast
+HOST_CXXFLAGS += -use_fast_math -flto -Ofast
 MK_NVCCFLAGS  += -O3
 else
-MK_CFLAGS     += -O3
-MK_CXXFLAGS   += -O3
+MK_CFLAGS     += #-O3
+MK_CXXFLAGS   += #-O3
 MK_NVCCFLAGS  += -O3
 endif
 
@@ -307,8 +309,8 @@ ifneq ($(filter aarch64%,$(UNAME_M)),)
 	# Apple M1, M2, etc.
 	# Raspberry Pi 3, 4, Zero 2 (64-bit)
 	# Nvidia Jetson
-	MK_CFLAGS   += -mcpu=native
-	MK_CXXFLAGS += -mcpu=native
+	MK_CXXFLAGS += -lastring -lamath -lm -ftree-slp-vectorize -mcpu=neoverse-n2 -mtune=neoverse-n2
+	MK_CFLAGS   += -lastring -lamath -lm -ftree-slp-vectorize -mcpu=neoverse-n2 -mtune=neoverse-n2
 	JETSON_RELEASE_INFO = $(shell jetson_release)
 	ifdef JETSON_RELEASE_INFO
 		ifneq ($(filter TX2%,$(JETSON_RELEASE_INFO)),)
@@ -336,7 +338,8 @@ ifneq ($(filter armv8%,$(UNAME_M)),)
 	MK_CFLAGS   += -mfp16-format=ieee -mno-unaligned-access
 	MK_CXXFLAGS += -mfp16-format=ieee -mno-unaligned-access
 endif
-
+MK_CFLAGS   +=# -g# -pg  
+MK_CXXFLAGS +=# -g# -pg  
 ifneq ($(filter ppc64%,$(UNAME_M)),)
 	POWER9_M := $(shell grep "POWER9" /proc/cpuinfo)
 	ifneq (,$(findstring POWER9,$(POWER9_M)))

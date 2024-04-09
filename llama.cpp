@@ -2851,7 +2851,11 @@ namespace GGUFMeta {
 }
 
 using llama_buf_map = std::unordered_map<uint32_t, ggml_backend_buffer_t>;
-
+static inline float ggml_compute_fp16_to_fp32(ggml_fp16_t h) {
+    __fp16 tmp;
+    memcpy(&tmp, &h, sizeof(ggml_fp16_t));
+    return (float)tmp;
+}
 struct llama_model_loader {
     int n_kv      = 0;
     int n_tensors = 0;
@@ -3058,7 +3062,7 @@ struct llama_model_loader {
                 }
             }
 
-            LLAMA_LOG_INFO("%s: Dumping metadata keys/values. Note: KV overrides do not apply in this output.\n", __func__);
+            // LLAMA_LOG_INFO("%s: Dumping metadata keys/values. Note: KV overrides do not apply in this output.\n", __func__);
 
             for (int i = 0; i < n_kv; i++) {
                 const char * name           = gguf_get_key(meta, i);
@@ -3075,7 +3079,7 @@ struct llama_model_loader {
                 }
                 replace_all(value, "\n", "\\n");
 
-                LLAMA_LOG_INFO("%s: - kv %3d: %42s %-16s = %s\n", __func__, i, name, type_name.c_str(), value.c_str());
+                // LLAMA_LOG_INFO("%s: - kv %3d: %42s %-16s = %s\n", __func__, i, name, type_name.c_str(), value.c_str());
             }
 
             // print type counts
@@ -3084,7 +3088,7 @@ struct llama_model_loader {
                     continue;
                 }
 
-                LLAMA_LOG_INFO("%s: - type %4s: %4d tensors\n", __func__, ggml_type_name(kv.first), kv.second);
+                // LLAMA_LOG_INFO("%s: - type %4s: %4d tensors\n", __func__, ggml_type_name(kv.first), kv.second);
             }
         }
 
@@ -3311,7 +3315,19 @@ struct llama_model_loader {
             }
 
             const auto & w = get_weights(ggml_get_name(cur));
-            size_t n_size = ggml_nbytes(cur);
+            size_t n_size, curnb[4];
+            if(cur->type == GGML_TYPE_Q8_0){
+                cur->type = GGML_TYPE_Q8_0_origin;
+                curnb[0] = cur->nb[0];
+                curnb[1] = cur->nb[1];
+                curnb[2] = cur->nb[2];
+                curnb[3] = cur->nb[3];
+                cur->nb[0] = 34;
+                cur->nb[1] = 34 * cur->ne[0] / 32;
+                cur->nb[2] = cur->nb[1] * cur->ne[1];
+                cur->nb[3] = cur->nb[2] * cur->ne[2];
+            }
+            n_size = ggml_nbytes(cur);
 
             if (use_mmap) {
                 const auto & mapping = mappings.at(w.idx);
@@ -3334,11 +3350,47 @@ struct llama_model_loader {
                     ggml_backend_tensor_set(cur, (uint8_t *) mapping->addr + w.offs, 0, n_size);
                 }
             } else {
+                #define QK8_0 32
+                typedef struct {
+                    // ggml_half d;       // delta
+                    float f;
+                    int8_t  qs[QK8_0]; // quants
+                } block_q8_0;
+                static_assert(sizeof(block_q8_0) == sizeof(float) + QK8_0, "wrong q8_0 block size/padding");
+
+                typedef struct {
+                    uint16_t d;       // delta
+                    int8_t  qs[QK8_0]; // quants
+                } block_q8_0_origin;
+
                 GGML_ASSERT(w.idx < files.size());
                 const auto & file = files.at(w.idx);
                 if (ggml_backend_buffer_is_host(cur->buffer)) {
                     file->seek(w.offs, SEEK_SET);
-                    file->read_raw(cur->data, ggml_nbytes(cur));
+                    if(cur->type == GGML_TYPE_Q8_0_origin){
+                        // 转换数据
+                        block_q8_0_origin *tmp = (block_q8_0_origin*)malloc(ggml_nbytes(cur));
+                        file->read_raw(tmp, ggml_nbytes(cur));
+                        long int ele = cur->ne[0];
+                        ele *= cur->ne[1];
+                        ele *= cur->ne[2];
+                        ele *= cur->ne[3];
+                        ele /= 32;
+                        for(long int i=0; i<ele; ++i){
+                            block_q8_0 *tmp1 = (block_q8_0*)cur->data;
+                            for(int j=0; j<32; ++j)
+                                tmp1[i].qs[j] = tmp[i].qs[j];
+                            tmp1[i].f = ggml_compute_fp16_to_fp32(tmp[i].d);
+                        }
+                        cur->type = GGML_TYPE_Q8_0;
+                        cur->nb[0] = curnb[0];
+                        cur->nb[1] = curnb[1];
+                        cur->nb[2] = curnb[2];
+                        cur->nb[3] = curnb[3];
+                        free(tmp);
+                    }else{
+                        file->read_raw(cur->data, ggml_nbytes(cur));
+                    }
                 } else {
                     read_buf.resize(ggml_nbytes(cur));
                     file->seek(w.offs, SEEK_SET);
@@ -5448,7 +5500,7 @@ static int llama_model_load(const std::string & fname, llama_model & model, llam
             throw std::runtime_error("error loading model vocabulary: " + std::string(e.what()));
         }
 
-        llm_load_print_meta(ml, model);
+        //llm_load_print_meta(ml, model);
 
         if (model.vocab.type != LLAMA_VOCAB_TYPE_NONE &&
             model.hparams.n_vocab != model.vocab.id_to_token.size()) {
@@ -14064,11 +14116,11 @@ struct llama_context * llama_new_context_with_model(
         params.seed = time(NULL);
     }
 
-    LLAMA_LOG_INFO("%s: n_ctx      = %u\n",     __func__, cparams.n_ctx);
-    LLAMA_LOG_INFO("%s: n_batch    = %u\n",     __func__, cparams.n_batch);
-    LLAMA_LOG_INFO("%s: n_ubatch   = %u\n",     __func__, cparams.n_ubatch);
-    LLAMA_LOG_INFO("%s: freq_base  = %.1f\n",   __func__, cparams.rope_freq_base);
-    LLAMA_LOG_INFO("%s: freq_scale = %g\n",     __func__, cparams.rope_freq_scale);
+    // LLAMA_LOG_INFO("%s: n_ctx      = %u\n",     __func__, cparams.n_ctx);
+    // LLAMA_LOG_INFO("%s: n_batch    = %u\n",     __func__, cparams.n_batch);
+    // LLAMA_LOG_INFO("%s: n_ubatch   = %u\n",     __func__, cparams.n_ubatch);
+    // LLAMA_LOG_INFO("%s: freq_base  = %.1f\n",   __func__, cparams.rope_freq_base);
+    // LLAMA_LOG_INFO("%s: freq_scale = %g\n",     __func__, cparams.rope_freq_scale);
 
     ctx->abort_callback      = params.abort_callback;
     ctx->abort_callback_data = params.abort_callback_data;
@@ -14213,10 +14265,10 @@ struct llama_context * llama_new_context_with_model(
                 memory_size_v += ggml_nbytes(v);
             }
 
-            LLAMA_LOG_INFO("%s: KV self size  = %7.2f MiB, K (%s): %7.2f MiB, V (%s): %7.2f MiB\n", __func__,
-                (float)(memory_size_k + memory_size_v) / (1024.0f * 1024.0f),
-                ggml_type_name(type_k), (float)memory_size_k / (1024.0f * 1024.0f),
-                ggml_type_name(type_v), (float)memory_size_v / (1024.0f * 1024.0f));
+            // LLAMA_LOG_INFO("%s: KV self size  = %7.2f MiB, K (%s): %7.2f MiB, V (%s): %7.2f MiB\n", __func__,
+                // (float)(memory_size_k + memory_size_v) / (1024.0f * 1024.0f),
+                // ggml_type_name(type_k), (float)memory_size_k / (1024.0f * 1024.0f),
+                // ggml_type_name(type_v), (float)memory_size_v / (1024.0f * 1024.0f));
         }
 
         // graph outputs buffer
@@ -14280,9 +14332,9 @@ struct llama_context * llama_new_context_with_model(
                 ggml_backend_buffer_type_t buft = backend_buft[i];
                 size_t size = ggml_backend_sched_get_buffer_size(ctx->sched, backend);
                 if (size > 1) {
-                    LLAMA_LOG_INFO("%s: %10s compute buffer size = %8.2f MiB\n", __func__,
-                            ggml_backend_buft_name(buft),
-                            size / 1024.0 / 1024.0);
+                    // LLAMA_LOG_INFO("%s: %10s compute buffer size = %8.2f MiB\n", __func__,
+                            // ggml_backend_buft_name(buft),
+                            // size / 1024.0 / 1024.0);
                 }
             }
 
