@@ -309,8 +309,8 @@ ifneq ($(filter aarch64%,$(UNAME_M)),)
 	# Apple M1, M2, etc.
 	# Raspberry Pi 3, 4, Zero 2 (64-bit)
 	# Nvidia Jetson
-	MK_CXXFLAGS += -lastring -lamath -lm -ftree-slp-vectorize -mcpu=neoverse-n2 -mtune=neoverse-n2
-	MK_CFLAGS   += -lastring -lamath -lm -ftree-slp-vectorize -mcpu=neoverse-n2 -mtune=neoverse-n2
+	MK_CXXFLAGS += -finline-functions -ftree-slp-vectorize -mcpu=neoverse-n2 -mtune=neoverse-n2
+	MK_CFLAGS   += -finline-functions -ftree-slp-vectorize -mcpu=neoverse-n2 -mtune=neoverse-n2
 	JETSON_RELEASE_INFO = $(shell jetson_release)
 	ifdef JETSON_RELEASE_INFO
 		ifneq ($(filter TX2%,$(JETSON_RELEASE_INFO)),)

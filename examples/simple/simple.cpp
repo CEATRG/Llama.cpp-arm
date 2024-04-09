@@ -42,7 +42,7 @@ int main1(int argc, char ** argv) {
 
     llama_model_params model_params = llama_model_default_params();
     model_params.use_mmap = false;
-    model_params.use_mlock = true;
+//    model_params.use_mlock = true;
 
     // model_params.n_gpu_layers = 99; // offload all layers to the GPU
 
@@ -101,7 +101,7 @@ int main1(int argc, char ** argv) {
     // create a llama_batch with size 512
     // we use this object to submit token data for decoding
 
-    llama_batch batch = llama_batch_init(580, 0, 1);
+    llama_batch batch = llama_batch_init(611, 0, 1);
     // for (size_t i = 0; i < 1; i++) {
     //     llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
     // }
@@ -131,15 +131,14 @@ int main1(int argc, char ** argv) {
     int n_cur    = batch.n_tokens;
     int n_decode = 0;
 
-    auto   n_vocab = llama_n_vocab(model);
+    const int32_t   n_vocab = llama_n_vocab(model);
     llama_token_data_array candidates_p = { (llama_token_data*)malloc(n_vocab * sizeof(llama_token_data)), n_vocab, false };
     for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
         candidates_p.data[token_id].id = token_id;
         candidates_p.data[token_id].p = 0.0f;
     }
 
-    const auto t_main_start = ggml_time_us();
-
+    int64_t time_decode = 0;
     while (n_cur <= n_len) {
         // sample the next token
         {
@@ -161,7 +160,7 @@ int main1(int argc, char ** argv) {
             //     break;
             // }
 
-            //LOG_TEE("%s", llama_token_to_piece(ctx, new_token_id).c_str());
+            // LOG_TEE("%s", llama_token_to_piece(ctx, new_token_id).c_str());
             // fflush(stdout);
 
             // prepare the next batch
@@ -176,18 +175,19 @@ int main1(int argc, char ** argv) {
         n_cur += 1;
 
         // evaluate the current batch with the transformer model
+        const auto t_main_start = ggml_time_us();
         if (llama_decode(ctx, batch)) {
             fprintf(stderr, "%s : failed to eval, return code %d\n", __func__, 1);
             return 1;
         }
+        const auto t_main_end = ggml_time_us();
+        time_decode += t_main_end - t_main_start;
     }
 
     LOG_TEE("\n");
 
-    const auto t_main_end = ggml_time_us();
-
-    //LOG_TEE("%s: decoded %d tokens in %.2f s, speed: %.2f t/s\n",
-    //        __func__, n_decode, (t_main_end - t_main_start) / 1000000.0f, n_decode / ((t_main_end - t_main_start) / 1000000.0f));
+    LOG_TEE("%s: decoded %d tokens in %.2f s, speed: %.2f t/s\n",
+           __func__, n_decode, (time_decode) / 1000000.0f, n_decode / ((time_decode) / 1000000.0f));
 
     llama_print_timings(ctx);
 

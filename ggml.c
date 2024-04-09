@@ -345,10 +345,13 @@ void ggml_fp16_to_fp32_row(const ggml_fp16_t * x, float * y, int n) {
     int i = 0;
 #if defined(__ARM_NEON)
     float16_t * tmpx = x;
-    for (; i < n - 4; i+=4){
+    for (; i < n - 8; i+=8){
         float16x4_t vx = vld1_f16(tmpx + i);
+        float16x4_t vx1 = vld1_f16(tmpx + i + 4);
         float32x4_t vy = vcvt_f32_f16(vx);
+        float32x4_t vy1 = vcvt_f32_f16(vx1);
         vst1q_f32(y + i, vy);
+        vst1q_f32(y + i + 8, vy1);
     }
 #endif
     for (; i < n; i++) {
@@ -371,10 +374,13 @@ void ggml_fp32_to_fp16_row(const float * x, ggml_fp16_t * y, int n) {
     }
 #endif
 #if defined(__ARM_NEON)
-    for (; i < n - 4; i+=4){
+    for (; i < n - 8; i+=8){
         float32x4_t vx = vld1q_f32(x + i);
+        float32x4_t vx1 = vld1q_f32(x + i + 4);
         float16x4_t vy = vcvt_f16_f32(vx);
+        float16x4_t vy1 = vcvt_f16_f32(vx1);
         vst1_f16((float16_t*)y + i, vy);
+        vst1_f16((float16_t*)y + i + 4, vy1);
     }
 #endif
     for (; i < n; i++) {
@@ -1525,11 +1531,15 @@ inline static void ggml_vec_add_f32 (const int n, float * z, const float * x, co
 {
     int i = 0;
     #if defined(__ARM_NEON)
-    for (; i < n - 4; i += 4){
+    for (; i < n - 8; i += 8){
         float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t xv1 = vld1q_f32(x + i + 4);
         float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t yv1 = vld1q_f32(y + i + 4);
         float32x4_t zv = vaddq_f32(xv, yv);
+        float32x4_t zv1 = vaddq_f32(xv1, yv1);
         vst1q_f32(z + i, zv);
+        vst1q_f32(z + i + 4, zv1);
     }
     #endif
     for (; i < n; ++i) z[i]  = x[i] + y[i]; 
@@ -1539,10 +1549,13 @@ inline static void ggml_vec_add1_f32(const int n, float * z, const float * x, co
     int i = 0;
     #if defined(__ARM_NEON)
     float32x4_t yv = vld1q_dup_f32(&v);
-    for (; i < n - 4; i += 4){
+    for (; i < n - 8; i += 8){
         float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t xv1 = vld1q_f32(x + i + 4);
         float32x4_t zv = vaddq_f32(xv, yv);
+        float32x4_t zv1 = vaddq_f32(xv1, yv);
         vst1q_f32(z + i, zv);
+        vst1q_f32(z + i + 4, zv1);
     }
     #endif
     for (; i < n; ++i) z[i]  = x[i] + v;
@@ -1551,11 +1564,15 @@ inline static void ggml_vec_acc_f32 (const int n, float * y, const float * x)
 {
     int i = 0;
     #if defined(__ARM_NEON)
-    for (; i < n - 4; i += 4){
+    for (; i < n - 8; i += 8){
         float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t xv1 = vld1q_f32(x + i + 4);
         float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t yv1 = vld1q_f32(y + i + 4);
         float32x4_t zv = vaddq_f32(xv, yv);
+        float32x4_t zv1 = vaddq_f32(xv1, yv1);
         vst1q_f32(y + i, zv);
+        vst1q_f32(y + i + 4, zv1);
     }
     #endif
     for (; i < n; ++i) y[i] += x[i];
@@ -1565,10 +1582,13 @@ inline static void ggml_vec_acc1_f32(const int n, float * y, const float   v)
     int i = 0;
     #if defined(__ARM_NEON)
     float32x4_t yv = vld1q_dup_f32(&v);
-    for (; i < n - 4; i += 4){
+    for (; i < n - 8; i += 8){
         float32x4_t xv = vld1q_f32(y + i);
+        float32x4_t xv1 = vld1q_f32(y + i + 4);
         float32x4_t zv = vaddq_f32(xv, yv);
+        float32x4_t zv1 = vaddq_f32(xv1, yv);
         vst1q_f32(y + i, zv);
+        vst1q_f32(y + i + 4, zv1);
     }
     #endif
     for (; i < n; ++i) y[i] += v;
@@ -1577,11 +1597,15 @@ inline static void ggml_vec_sub_f32 (const int n, float * z, const float * x, co
 {
     int i = 0;
     #if defined(__ARM_NEON)
-    for (; i < n - 4; i += 4){
+    for (; i < n - 8; i += 8){
         float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t xv1 = vld1q_f32(x + i + 4);
         float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t yv1 = vld1q_f32(y + i + 4);
         float32x4_t zv = vsubq_f32(xv, yv);
+        float32x4_t zv1 = vsubq_f32(xv1, yv1);
         vst1q_f32(z + i, zv);
+        vst1q_f32(z + i + 4, zv1);
     }
     #endif
     for (; i < n; ++i) z[i]  = x[i] - y[i];
@@ -1597,11 +1621,15 @@ inline static void ggml_vec_mul_f32 (const int n, float * z, const float * x, co
 {
     int i = 0;
     #if defined(__ARM_NEON)
-    for (; i < n - 4; i += 4){
+    for (; i < n - 8; i += 8){
         float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t xv1 = vld1q_f32(x + i + 4);
         float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t yv1 = vld1q_f32(y + i + 4);
         float32x4_t zv = vmulq_f32(xv, yv);
+        float32x4_t zv1 = vmulq_f32(xv1, yv1);
         vst1q_f32(z + i, zv);
+        vst1q_f32(z + i + 4, zv1);
     }
     #endif
     for (; i < n; ++i)
@@ -1611,11 +1639,15 @@ inline static void ggml_vec_div_f32 (const int n, float * z, const float * x, co
 {
     int i = 0;
     #if defined(__ARM_NEON)
-    for (; i < n - 4; i += 4){
+    for (; i < n - 8; i += 8){
         float32x4_t xv = vld1q_f32(x + i);
+        float32x4_t xv1 = vld1q_f32(x + i + 4);
         float32x4_t yv = vld1q_f32(y + i);
+        float32x4_t yv1 = vld1q_f32(y + i + 4);
         float32x4_t zv = vdivq_f32(xv, yv);
+        float32x4_t zv1 = vdivq_f32(xv1, yv1);
         vst1q_f32(z + i, zv);
+        vst1q_f32(z + i + 4, zv1);
     }
     #endif
     for (; i < n; ++i) z[i]  = x[i]/y[i];
@@ -10410,11 +10442,14 @@ static void ggml_compute_forward_norm_f32(
                 #if defined(__ARM_NEON)
                 {
                     float32x4_t sumv = vdupq_n_f32(0.0f);
-                    for(; i00 < ne00 - 4; i00 += 4){
+                    float32x4_t sumv1 = vdupq_n_f32(0.0f);
+                    for(; i00 < ne00 - 8; i00 += 8){
                         float32x4_t xv = vld1q_f32(x + i00);
+                        float32x4_t xv1 = vld1q_f32(x + i00 + 4);
                         sumv = vaddq_f32(sumv, xv);
+                        sumv1 = vaddq_f32(sumv1, xv1);
                     }
-                    sum = vaddvq_f32(sumv);
+                    sum = vaddvq_f32(sumv) + vaddvq_f32(sumv1);
                 }
                 #endif
                 for (; i00 < ne00; i00++) {
@@ -10429,14 +10464,19 @@ static void ggml_compute_forward_norm_f32(
                 #if defined(__ARM_NEON)
                 {
                     float32x4_t sumv = vdupq_n_f32(0.0f);
+                    float32x4_t sumv1 = vdupq_n_f32(0.0f);
                     float32x4_t meanv = vld1q_dup_f32(&mean);
-                    for(; i00 < ne00 - 4; i00 += 4){
+                    for(; i00 < ne00 - 8; i00 += 8){
                         float32x4_t xv = vld1q_f32(x + i00);
+                        float32x4_t xv1 = vld1q_f32(x + i00 + 4);
                         float32x4_t vv = vsubq_f32(xv, meanv);
+                        float32x4_t vv1 = vsubq_f32(xv1, meanv);
                         vst1q_f32(y + i00, vv);
+                        vst1q_f32(y + i00 + 4, vv1);
                         sumv = vfmaq_f32(sumv, vv, vv);
+                        sumv1 = vfmaq_f32(sumv1, vv1, vv1);
                     }
-                    sum2 = vaddvq_f32(sumv);
+                    sum2 = vaddvq_f32(sumv) + vaddvq_f32(sumv1);
                 }
                 #endif
                 for (; i00 < ne00; i00++) {
@@ -10509,11 +10549,14 @@ static void ggml_compute_forward_rms_norm_f32(
                 #if defined(__ARM_NEON)
                 {
                     float32x4_t sumv = vdupq_n_f32(0.0f);
-                    for(; i00 < ne00 - 4; i00 += 4){
+                    float32x4_t sumv1 = vdupq_n_f32(0.0f);
+                    for(; i00 < ne00 - 8; i00 += 8){
                         float32x4_t xv = vld1q_f32(x + i00);
+                        float32x4_t xv1 = vld1q_f32(x + i00 + 4);
                         sumv = vfmaq_f32(sumv, xv, xv);
+                        sumv1 = vfmaq_f32(sumv1, xv1, xv1);
                     }
-                    sum = vaddvq_f32(sumv);
+                    sum = vaddvq_f32(sumv) + vaddvq_f32(sumv1);
                 }
                 #endif
                 for (; i00 < ne00; i00++) {
