@@ -42,7 +42,7 @@ int main1(int argc, char ** argv) {
 
     llama_model_params model_params = llama_model_default_params();
     model_params.use_mmap = false;
-//    model_params.use_mlock = true;
+    //model_params.use_mlock = true;
 
     // model_params.n_gpu_layers = 99; // offload all layers to the GPU
 
@@ -101,7 +101,7 @@ int main1(int argc, char ** argv) {
     // create a llama_batch with size 512
     // we use this object to submit token data for decoding
 
-    llama_batch batch = llama_batch_init(611, 0, 1);
+    llama_batch batch = llama_batch_init(610, 0, 1);
     // for (size_t i = 0; i < 1; i++) {
     //     llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
     // }
@@ -175,19 +175,19 @@ int main1(int argc, char ** argv) {
         n_cur += 1;
 
         // evaluate the current batch with the transformer model
-        const auto t_main_start = ggml_time_us();
+        // const auto t_main_start = ggml_time_us();
         if (llama_decode(ctx, batch)) {
             fprintf(stderr, "%s : failed to eval, return code %d\n", __func__, 1);
             return 1;
         }
-        const auto t_main_end = ggml_time_us();
-        time_decode += t_main_end - t_main_start;
+        // const auto t_main_end = ggml_time_us();
+        // time_decode += t_main_end - t_main_start;
     }
 
     LOG_TEE("\n");
 
-    LOG_TEE("%s: decoded %d tokens in %.2f s, speed: %.2f t/s\n",
-           __func__, n_decode, (time_decode) / 1000000.0f, n_decode / ((time_decode) / 1000000.0f));
+    // LOG_TEE("%s: decoded %d tokens in %.2f s, speed: %.2f t/s\n",
+    //        __func__, n_decode, (time_decode) / 1000000.0f, n_decode / ((time_decode) / 1000000.0f));
 
     llama_print_timings(ctx);
 
@@ -206,7 +206,7 @@ int main1(int argc, char ** argv) {
 
 int main(int argc, char ** argv)
 {
-    for (int i=0; i<1; ++i){
+    for (int i=0; i<10; ++i){
         main1(argc, argv);
     }
 }

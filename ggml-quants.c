@@ -4865,7 +4865,10 @@ void ggml_vec_dot_q5_1_q8_1(int n, float * restrict s, size_t bs, const void * r
 inline void ggml_vec_dot_q8_0_q8_0(int n, float * restrict s, size_t bs, const void * restrict vx, size_t bx, const void * restrict vy, size_t by, int nrc) {
     const int qk = QK8_0;
     const int nb = n / qk;
-
+    // UNUSED(nrc);
+    // UNUSED(bx);
+    // UNUSED(by);
+    // UNUSED(bs);
     //assert(n % qk == 0);
 #if defined(__ARM_FEATURE_MATMUL_INT8)
     //assert((nrc == 2) || (nrc == 1));
@@ -4939,10 +4942,6 @@ inline void ggml_vec_dot_q8_0_q8_0(int n, float * restrict s, size_t bs, const v
         return;
     }
 #endif
-    UNUSED(nrc);
-    UNUSED(bx);
-    UNUSED(by);
-    UNUSED(bs);
 
     const block_q8_0 * restrict x = vx;
     const block_q8_0 * restrict y = vy;
